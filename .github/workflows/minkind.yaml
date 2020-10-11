@@ -30,6 +30,7 @@ jobs:
         - serving api conformance
         - serving e2e
         - eventing e2e
+        - eventing conformance
         - tekton e2e
 
         # Map between K8s and KinD versions.
@@ -89,6 +90,13 @@ jobs:
           repo: pipeline
           test-suite: ./test/...
           # TODO(https://github.com/tektoncd/pipeline/issues/3429): randomize this.
+          cluster-suffix: cluster.local
+        - leg: eventing conformance
+          upstream: knative.dev/eventing
+          repo: knative/eventing
+          test-suite: ./test/conformance
+          extra-go-flags: -parallel=12
+          extra-test-flags: -brokers=eventing.knative.dev/v1beta1:MTChannelBasedBroker -channels=messaging.knative.dev/v1beta1:Channel,messaging.knative.dev/v1beta1:InMemoryChannel,messaging.knative.dev/v1:Channel,messaging.knative.dev/v1:InMemoryChannel -sources=sources.knative.dev/v1beta1:ApiServerSource,sources.knative.dev/v1alpha2:ContainerSource,sources.knative.dev/v1beta1:PingSource
           cluster-suffix: cluster.local
 
     env:
@@ -212,13 +220,10 @@ jobs:
     - name: Upload Test Images
       working-directory: ./src/${{ matrix.upstream }}
       run: |
-        # Avoid assumptions about the precreation of these.
-        # TODO(mattmoor): Replace with sed?
-        kubectl create namespace knative-serving
-        kubectl create namespace knative-eventing
-        kubectl create namespace tekton-pipelines
-
-        [[ ! -d ./test/config ]] || ko apply -Pf test/config
+        # Make sure the things going to system namespace make it!
+        [[ ! -d ./test/config ]] || ko resolve -Pf test/config | \
+           sed -E "s/(knative-eventing|knative-serving|tekton-pipelinens)/${SYSTEM_NAMESPACE}/g" \
+           kubectl apply -f -
 
         # Build and Publish our test images to the docker daemon.
         [[ ! -f ./test/upload-test-images.sh ]] || ./test/upload-test-images.sh
@@ -235,6 +240,9 @@ jobs:
           echo Webhook not ready.
           sleep 2
         done
+
+        # Be KinD to these tests.
+        kubectl scale -n${SYSTEM_NAMESPACE} deployment/chaosduck --replicas=0 || true
 
     - name: Install in-memory channel
       run: |
