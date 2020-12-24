@@ -23,6 +23,7 @@ jobs:
         - v1.17.x
         - v1.18.x
         - v1.19.x
+        - v1.20.x-estargz
 
         suite:
         - Knative helloworld
